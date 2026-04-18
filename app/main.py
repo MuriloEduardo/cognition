@@ -1,57 +1,51 @@
 import asyncio
-import logging
 import signal
 
+import structlog
+
+from app.adapters.inbound.generate_handler import GenerateHandler
 from app.container import Container
-from app.ports.inbound.message_handler import MessageHandler
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.dev.ConsoleRenderer(),
+    ],
 )
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
-
-class ExampleHandler(MessageHandler):
-    async def handle(
-        self, message: bytes, routing_key: str, headers: dict | None = None
-    ) -> None:
-        logger.info("Received [%s]: %s", routing_key, message.decode())
+EXCHANGE = "cognition.exchange"
+QUEUE = "generate.request"
+ROUTING_KEY = "generate.request"
 
 
 async def main() -> None:
     container = Container()
-    logger.info("Starting %s...", container.settings.app_name)
+    logger.info("starting", app=container.settings.app_name)
 
-    # Connect
     await container.connection.connect()
 
-    # Example: publish a message
-    await container.publisher.publish(
-        message=b'{"hello": "world"}',
-        routing_key="test.queue",
-    )
-    logger.info("Message published successfully")
-
-    # Example: start consuming
-    handler = ExampleHandler()
+    handler = GenerateHandler(publisher=container.publisher)
     consumer = container.consumer(handler)
-    await consumer.start_consuming(queue_name="test.queue")
+    await consumer.start_consuming(
+        queue_name=QUEUE,
+        exchange_name=EXCHANGE,
+        routing_key=ROUTING_KEY,
+        prefetch_count=container.settings.rabbitmq_prefetch_count,
+    )
 
-    # Keep running until interrupted
-    stop_event = asyncio.Event()
+    logger.info("consuming", queue=QUEUE, exchange=EXCHANGE)
 
-    def _signal_handler() -> None:
-        logger.info("Shutdown signal received")
-        stop_event.set()
-
+    stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, _signal_handler)
+        loop.add_signal_handler(sig, stop.set)
 
-    await stop_event.wait()
+    await stop.wait()
     await container.shutdown()
-    logger.info("Shutdown complete")
+    logger.info("shutdown.complete")
 
 
 if __name__ == "__main__":

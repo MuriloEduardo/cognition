@@ -1,12 +1,11 @@
-import logging
-
 import aio_pika
+import structlog
 from aio_pika.abc import AbstractIncomingMessage
 
 from app.infrastructure.messaging.rabbitmq_connection import RabbitMQConnection
 from app.ports.inbound.message_handler import MessageHandler
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class RabbitMQConsumer:
@@ -48,7 +47,5 @@ class RabbitMQConsumer:
                     routing_key=message.routing_key or "",
                     headers=headers,
                 )
-                logger.debug("Message processed: %s", message.message_id)
             except Exception:
-                logger.exception("Error processing message: %s", message.message_id)
-                raise
+                logger.exception("message.failed", message_id=message.message_id)
