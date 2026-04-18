@@ -1,0 +1,19 @@
+[project]
+name = "cognition"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "MuriloEduardo",email = "muriloeduardoooooo@gmail.com"}
+]
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "aio-pika (>=9.6.2,<10.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
