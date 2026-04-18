@@ -5,10 +5,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Launch app.main",
+            "name": "Python: All Workers",
             "type": "debugpy",
             "request": "launch",
             "module": "app.main",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "python": "/home/murilo/.cache/pypoetry/virtualenvs/cognition-_f9uhDKh-py3.12/bin/python"
+        },
+        {
+            "name": "Python: Generate Worker",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "app.main",
+            "args": ["--workers", "generate"],
             "justMyCode": true,
             "cwd": "${workspaceFolder}",
             "python": "/home/murilo/.cache/pypoetry/virtualenvs/cognition-_f9uhDKh-py3.12/bin/python"

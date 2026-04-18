@@ -1,10 +1,15 @@
+import argparse
 import asyncio
 import signal
 
 import structlog
 
-from app.adapters.inbound.generate_handler import GenerateHandler
 from app.container import Container
+from app.workers import available_workers
+from app.workers.runner import WorkerRunner
+
+# Import workers to trigger registration
+import app.workers.generate  # noqa: F401
 
 structlog.configure(
     processors=[
@@ -16,27 +21,27 @@ structlog.configure(
 )
 logger = structlog.get_logger(__name__)
 
-EXCHANGE = "cognition.exchange"
-QUEUE = "generate.request"
-ROUTING_KEY = "generate.request"
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Cognition workers")
+    parser.add_argument(
+        "--workers",
+        nargs="*",
+        default=[],
+        help=f"Workers to start (available: {', '.join(available_workers())}). Empty = all.",
+    )
+    return parser.parse_args()
 
 
 async def main() -> None:
+    args = parse_args()
     container = Container()
-    logger.info("starting", app=container.settings.app_name)
 
-    await container.connection.connect()
+    runner = WorkerRunner(container)
+    await runner.start(*args.workers)
 
-    handler = GenerateHandler(publisher=container.publisher)
-    consumer = container.consumer(handler)
-    await consumer.start_consuming(
-        queue_name=QUEUE,
-        exchange_name=EXCHANGE,
-        routing_key=ROUTING_KEY,
-        prefetch_count=container.settings.rabbitmq_prefetch_count,
-    )
-
-    logger.info("consuming", queue=QUEUE, exchange=EXCHANGE)
+    names = args.workers or available_workers()
+    logger.info("workers.running", workers=names)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

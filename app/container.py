@@ -1,10 +1,12 @@
-import logging
+import structlog
 
 from app.adapters.inbound.rabbitmq_consumer import RabbitMQConsumer
 from app.adapters.outbound.rabbitmq_publisher import RabbitMQPublisher
 from app.infrastructure.config.settings import Settings
 from app.infrastructure.messaging.rabbitmq_connection import RabbitMQConnection
 from app.ports.inbound.message_handler import MessageHandler
+
+logger = structlog.get_logger(__name__)
 
 
 class Container:
@@ -31,4 +33,4 @@ class Container:
     async def shutdown(self) -> None:
         if self._connection:
             await self._connection.close()
-        logging.getLogger(__name__).info("Container shut down")
+        logger.info("container.shutdown")
