@@ -1,6 +1,4 @@
 import logging
-from collections.abc import Callable, Coroutine
-from typing import Any
 
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage

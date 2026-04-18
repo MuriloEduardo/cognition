@@ -35,7 +35,11 @@ class RabbitMQPublisher(MessagePublisher):
         )
 
         await exchange.publish(amqp_message, routing_key=routing_key)
-        logger.debug("Published message to '%s' with routing_key '%s'", exchange_name or "default", routing_key)
+        logger.debug(
+            "Published message to '%s' with routing_key '%s'",
+            exchange_name or "default",
+            routing_key,
+        )
 
     async def close(self) -> None:
         await self._connection.close()
