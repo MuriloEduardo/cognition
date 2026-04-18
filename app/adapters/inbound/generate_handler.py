@@ -15,7 +15,9 @@ class GenerateHandler(MessageHandler):
     def __init__(self, publisher: RabbitMQPublisher) -> None:
         self._publisher = publisher
 
-    async def handle(self, message: bytes, routing_key: str, headers: dict | None = None) -> None:
+    async def handle(
+        self, message: bytes, routing_key: str, headers: dict | None = None
+    ) -> None:
         if not message:
             logger.warning("generate.empty_message", routing_key=routing_key)
             return
@@ -47,7 +49,9 @@ class GenerateHandler(MessageHandler):
         )
         log.info("generate.responded", has_error=response.error is not None)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True)
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True
+    )
     async def _process(self, request: GenerateRequest) -> str:
         # TODO: plug your LLM call here (LangChain, OpenAI, etc.)
         return f"Echo: {request.prompt}"
