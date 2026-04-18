@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class ExampleHandler(MessageHandler):
-    async def handle(self, message: bytes, routing_key: str, headers: dict | None = None) -> None:
+    async def handle(
+        self, message: bytes, routing_key: str, headers: dict | None = None
+    ) -> None:
         logger.info("Received [%s]: %s", routing_key, message.decode())
 
 

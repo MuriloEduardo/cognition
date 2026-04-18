@@ -24,7 +24,9 @@ class RabbitMQConnection:
                 self._connection = await aio_pika.connect_robust(
                     str(self._settings.rabbitmq_url),
                 )
-                logger.info("Connected to RabbitMQ at %s", self._settings.rabbitmq_url.host)
+                logger.info(
+                    "Connected to RabbitMQ at %s", self._settings.rabbitmq_url.host
+                )
                 return self._connection
             except Exception:
                 logger.warning(
@@ -35,7 +37,9 @@ class RabbitMQConnection:
                 if attempt < self._settings.rabbitmq_max_retries:
                     await asyncio.sleep(self._settings.rabbitmq_reconnect_delay)
                 else:
-                    logger.exception("Failed to connect to RabbitMQ after %d attempts", attempt)
+                    logger.exception(
+                        "Failed to connect to RabbitMQ after %d attempts", attempt
+                    )
                     raise
 
         raise RuntimeError("Unreachable")
