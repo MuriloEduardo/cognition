@@ -1,11 +1,8 @@
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any
 
-if TYPE_CHECKING:
-    from app.container import Container
-    from app.ports.inbound.message_handler import MessageHandler
-
-type HandlerFactory = callable  # (container: Container) -> MessageHandler
+type HandlerFactory = Callable[..., Any]
 
 
 @dataclass(frozen=True)
