@@ -20,10 +20,16 @@ class LLMService:
         self._settings = settings
         self._llm: ChatOpenAI | None = None
 
-    def _get_llm(self, model: str | None = None, temperature: float | None = None) -> ChatOpenAI:
+    def _get_llm(
+        self, model: str | None = None, temperature: float | None = None
+    ) -> ChatOpenAI:
         """Get or create LLM instance."""
         model_name = model or self._settings.default_model
-        temp = temperature if temperature is not None else self._settings.default_temperature
+        temp = (
+            temperature
+            if temperature is not None
+            else self._settings.default_temperature
+        )
 
         return ChatOpenAI(
             model=model_name,
@@ -63,7 +69,9 @@ Suas responsabilidades:
             context_info.append(f"Idioma: {language}")
 
         if context_info:
-            context_section = "\n\nContexto da conversa:\n" + "\n".join(f"- {info}" for info in context_info)
+            context_section = "\n\nContexto da conversa:\n" + "\n".join(
+                f"- {info}" for info in context_info
+            )
             return base_prompt + context_section
 
         return base_prompt
