@@ -11,17 +11,20 @@
             "module": "app.main",
             "justMyCode": true,
             "cwd": "${workspaceFolder}",
-            "python": "/home/murilo/.cache/pypoetry/virtualenvs/cognition-_f9uhDKh-py3.12/bin/python"
+            "python": "${workspaceFolder}/.venv/bin/python"
         },
         {
-            "name": "Python: Generate Worker",
+            "name": "Python: Cognition Worker",
             "type": "debugpy",
             "request": "launch",
             "module": "app.main",
-            "args": ["--workers", "generate"],
+            "args": [
+                "--workers",
+                "cognition"
+            ],
             "justMyCode": true,
             "cwd": "${workspaceFolder}",
-            "python": "/home/murilo/.cache/pypoetry/virtualenvs/cognition-_f9uhDKh-py3.12/bin/python"
+            "python": "${workspaceFolder}/.venv/bin/python"
         }
     ]
 }
