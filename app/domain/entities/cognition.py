@@ -1,6 +1,7 @@
 """
 Cognition service entities.
-Uses shared schemas for cross-service communication.
+Cognition processes AI/LLM requests and returns processing results.
+It doesn't know about channels or workflows - just processes cognition tasks.
 """
 
 import sys
@@ -10,13 +11,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 from shared_schemas import (
     WorkflowContext,
-    CognitionRequest as GenerateRequest,
-    CognitionResponse as GenerateResponse,
+    CognitionRequest,
+    CognitionResponse,
 )
 
 __all__ = [
     "WorkflowContext",
-    "GenerateRequest",
-    "GenerateResponse",
+    "CognitionRequest",
+    "CognitionResponse",
 ]
 
