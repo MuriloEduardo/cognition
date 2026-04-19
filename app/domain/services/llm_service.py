@@ -3,8 +3,6 @@ LLM service using LangGraph with checkpointer for automatic conversation persist
 The checkpointer stores all messages per thread_id — no need to pass history between services.
 """
 
-from contextlib import AsyncExitStack
-
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -30,7 +28,6 @@ class LLMService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._graph = None
-        self._exit_stack = AsyncExitStack()
 
     async def _ensure_graph(self) -> None:
         if self._graph is not None:
@@ -41,26 +38,8 @@ class LLMService:
         logger.info("langgraph.compiled")
 
     async def _init_checkpointer(self):
-        if not self._settings.database_url:
-            logger.info("checkpointer.memory", reason="no database_url")
-            return MemorySaver()
-
-        try:
-            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-            checkpointer = await self._exit_stack.enter_async_context(
-                AsyncPostgresSaver.from_conn_string(self._settings.database_url)
-            )
-            await checkpointer.setup()
-            logger.info("checkpointer.postgres")
-            return checkpointer
-        except Exception as exc:
-            logger.warning(
-                "checkpointer.fallback_to_memory",
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
-            return MemorySaver()
+        logger.info("checkpointer.memory")
+        return MemorySaver()
 
     def _compile_graph(self, checkpointer):
         settings = self._settings
@@ -118,4 +97,4 @@ class LLMService:
             raise
 
     async def close(self) -> None:
-        await self._exit_stack.aclose()
+        pass
