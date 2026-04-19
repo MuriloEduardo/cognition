@@ -1,7 +1,7 @@
 import structlog
 
-from app.adapters.inbound.rabbitmq_consumer import RabbitMQConsumer
-from app.adapters.outbound.rabbitmq_publisher import RabbitMQPublisher
+from app.adapters.inbound.amqp.consumer import RabbitMQConsumer
+from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
 from app.infrastructure.config.settings import Settings
 from app.infrastructure.messaging.rabbitmq_connection import RabbitMQConnection
 from app.ports.inbound.message_handler import MessageHandler

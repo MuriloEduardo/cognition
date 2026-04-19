@@ -1,4 +1,4 @@
-from app.adapters.inbound.generate_handler import GenerateHandler
+from app.adapters.inbound.amqp.handlers.generate_handler import GenerateHandler
 from app.container import Container
 from app.workers import worker
 

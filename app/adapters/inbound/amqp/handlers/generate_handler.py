@@ -1,7 +1,7 @@
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.adapters.outbound.rabbitmq_publisher import RabbitMQPublisher
+from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
 from app.domain.entities.generate import GenerateRequest, GenerateResponse
 from app.ports.inbound.message_handler import MessageHandler
 
