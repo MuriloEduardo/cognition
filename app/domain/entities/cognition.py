@@ -1,23 +1,43 @@
 """
 Cognition service entities.
 Cognition processes AI/LLM requests and returns processing results.
-It doesn't know about channels or workflows - just processes cognition tasks.
 """
 
-import sys
-from pathlib import Path
+from typing import Any
 
-# Add parent directory to path to import shared_schemas
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
-from shared_schemas import (
-    WorkflowContext,
-    CognitionRequest,
-    CognitionResponse,
-)
+from pydantic import BaseModel, Field
+
+
+class WorkflowContext(BaseModel):
+    model_config = {"extra": "allow"}
+
+    session_id: str
+    conversation_id: str | None = None
+    user_id: str | None = None
+    state: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CognitionRequest(BaseModel):
+    request_id: str
+    prompt: str
+    model: str = "default"
+    max_tokens: int = 1024
+    temperature: float = 0.7
+    context: WorkflowContext | None = None
+
+
+class CognitionResponse(BaseModel):
+    request_id: str
+    content: str
+    model: str
+    tokens_used: int | None = None
+    error: str | None = None
+    context: WorkflowContext | None = None
+
 
 __all__ = [
     "WorkflowContext",
     "CognitionRequest",
     "CognitionResponse",
 ]
-
