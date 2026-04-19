@@ -10,4 +10,7 @@ from app.workers import worker
     routing_key="cognition.request",
 )
 def create_cognition_handler(container: Container) -> CognitionHandler:
-    return CognitionHandler(publisher=container.publisher)
+    return CognitionHandler(
+        publisher=container.publisher,
+        llm_service=container.llm_service,
+    )

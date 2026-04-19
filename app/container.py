@@ -2,6 +2,7 @@ import structlog
 
 from app.adapters.inbound.amqp.consumer import RabbitMQConsumer
 from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
+from app.domain.services.llm_service import LLMService
 from app.infrastructure.config.settings import Settings
 from app.infrastructure.messaging.rabbitmq_connection import RabbitMQConnection
 from app.ports.inbound.message_handler import MessageHandler
@@ -14,6 +15,7 @@ class Container:
         self.settings = settings or Settings()
         self._connection: RabbitMQConnection | None = None
         self._publisher: RabbitMQPublisher | None = None
+        self._llm_service: LLMService | None = None
 
     @property
     def connection(self) -> RabbitMQConnection:
@@ -26,6 +28,12 @@ class Container:
         if self._publisher is None:
             self._publisher = RabbitMQPublisher(self.connection)
         return self._publisher
+
+    @property
+    def llm_service(self) -> LLMService:
+        if self._llm_service is None:
+            self._llm_service = LLMService(self.settings)
+        return self._llm_service
 
     def consumer(self, handler: MessageHandler) -> RabbitMQConsumer:
         return RabbitMQConsumer(self.connection, handler)

@@ -16,3 +16,9 @@ class Settings(BaseSettings):
 
     app_name: str = "cognition"
     log_level: str = "INFO"
+
+    # LLM Configuration
+    openai_api_key: str
+    default_model: str = "gpt-4o-mini"
+    default_temperature: float = 0.7
+    default_max_tokens: int = 1024

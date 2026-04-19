@@ -26,3 +26,8 @@ package-mode = false
 dev = [
     "ruff (>=0.15.11,<0.16.0)"
 ]
+
+[tool.poetry.dependencies]
+langchain = "^0.3.19"
+langchain-openai = "^0.3.3"
+langchain-core = "^0.3.32"

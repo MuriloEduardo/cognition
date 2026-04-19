@@ -3,6 +3,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
 from app.domain.entities.cognition import CognitionRequest, CognitionResponse
+from app.domain.services.llm_service import LLMService
 from app.ports.inbound.message_handler import MessageHandler
 
 logger = structlog.get_logger(__name__)
@@ -17,8 +18,9 @@ class CognitionHandler(MessageHandler):
     Cognition service processes LLM requests and returns results.
     """
 
-    def __init__(self, publisher: RabbitMQPublisher) -> None:
+    def __init__(self, publisher: RabbitMQPublisher, llm_service: LLMService) -> None:
         self._publisher = publisher
+        self._llm_service = llm_service
 
     async def handle(
         self, message: bytes, routing_key: str, headers: dict | None = None
@@ -60,11 +62,5 @@ class CognitionHandler(MessageHandler):
         stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True
     )
     async def _process(self, request: CognitionRequest) -> str:
-        # TODO: plug your LLM call here (LangChain, OpenAI, etc.)
-        logger.info(
-            "cognition.processing",
-            prompt_length=len(request.prompt),
-            model=request.model,
-            temperature=request.temperature,
-        )
-        return f"Echo: {request.prompt}"
+        """Process LLM request using LangChain."""
+        return await self._llm_service.process(request)
