@@ -21,7 +21,7 @@ class WorkflowContext(BaseModel):
 class CognitionRequest(BaseModel):
     request_id: str
     prompt: str
-    model: str = "default"
+    model: str | None = None
     max_tokens: int = 1024
     temperature: float = 0.7
     context: WorkflowContext | None = None

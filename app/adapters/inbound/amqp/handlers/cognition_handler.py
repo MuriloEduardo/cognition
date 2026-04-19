@@ -30,7 +30,8 @@ class CognitionHandler(MessageHandler):
             return
 
         request = CognitionRequest.model_validate_json(message)
-        log = logger.bind(request_id=request.request_id, model=request.model)
+        effective_model = request.model or "default"
+        log = logger.bind(request_id=request.request_id, model=effective_model)
         log.info("cognition.received")
 
         try:
@@ -38,7 +39,7 @@ class CognitionHandler(MessageHandler):
             response = CognitionResponse(
                 request_id=request.request_id,
                 content=content,
-                model=request.model,
+                model=effective_model,
                 context=request.context,
             )
         except Exception as exc:
@@ -46,7 +47,7 @@ class CognitionHandler(MessageHandler):
             response = CognitionResponse(
                 request_id=request.request_id,
                 content="",
-                model=request.model,
+                model=effective_model,
                 error=str(exc),
                 context=request.context,
             )
