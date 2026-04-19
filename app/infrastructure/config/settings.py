@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     app_name: str = "cognition"
     log_level: str = "INFO"
 
+    # PostgreSQL (for LangGraph checkpointer)
+    database_url: str = ""
+
     # LLM Configuration
     openai_api_key: str
     default_model: str = "gpt-4o-mini"

@@ -39,6 +39,8 @@ class Container:
         return RabbitMQConsumer(self.connection, handler)
 
     async def shutdown(self) -> None:
+        if self._llm_service:
+            await self._llm_service.close()
         if self._connection:
             await self._connection.close()
         logger.info("container.shutdown")

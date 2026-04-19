@@ -1,46 +1,22 @@
 """
-Simple LLM service using LangChain.
-Based on references from previous projects but simplified for current architecture.
+LLM service using LangGraph with checkpointer for automatic conversation persistence.
+The checkpointer stores all messages per thread_id — no need to pass history between services.
 """
+
+from contextlib import AsyncExitStack
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, MessagesState, StateGraph
 
-from app.domain.entities.cognition import CognitionRequest, WorkflowContext
+from app.domain.entities.cognition import CognitionRequest
 from app.infrastructure.config.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
-
-class LLMService:
-    """Simple LLM service using LangChain ChatOpenAI."""
-
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
-        self._llm: ChatOpenAI | None = None
-
-    def _get_llm(
-        self, model: str | None = None, temperature: float | None = None
-    ) -> ChatOpenAI:
-        """Get or create LLM instance."""
-        model_name = model or self._settings.default_model
-        temp = (
-            temperature
-            if temperature is not None
-            else self._settings.default_temperature
-        )
-
-        return ChatOpenAI(
-            model=model_name,
-            temperature=temp,
-            max_tokens=self._settings.default_max_tokens,
-            api_key=self._settings.openai_api_key,
-        )
-
-    def _build_system_prompt(self, context: WorkflowContext | None) -> str:
-        """Build system prompt based on context."""
-        base_prompt = """Você é um assistente de atendimento ao cliente profissional e prestativo.
+SYSTEM_PROMPT = """Você é um assistente de atendimento ao cliente profissional e prestativo.
 
 Suas responsabilidades:
 - Responder perguntas de forma clara e objetiva
@@ -49,43 +25,66 @@ Suas responsabilidades:
 - Fornecer soluções práticas para problemas dos clientes
 """
 
-        if not context:
-            return base_prompt
 
-        # Add context information
-        context_info = []
+class LLMService:
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._graph = None
+        self._exit_stack = AsyncExitStack()
 
-        if context.user_id:
-            context_info.append(f"Cliente ID: {context.user_id}")
+    async def _ensure_graph(self) -> None:
+        if self._graph is not None:
+            return
 
-        if context.conversation_id:
-            context_info.append(f"Conversa ID: {context.conversation_id}")
+        checkpointer = await self._init_checkpointer()
+        self._graph = self._compile_graph(checkpointer)
+        logger.info("langgraph.compiled")
 
-        if context.state:
-            context_info.append(f"Estado atual: {context.state}")
+    async def _init_checkpointer(self):
+        if not self._settings.database_url:
+            logger.info("checkpointer.memory", reason="no database_url")
+            return MemorySaver()
 
-        if context.metadata:
-            language = context.metadata.get("language", "pt-BR")
-            context_info.append(f"Idioma: {language}")
+        try:
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        if context_info:
-            context_section = "\n\nContexto da conversa:\n" + "\n".join(
-                f"- {info}" for info in context_info
+            checkpointer = await self._exit_stack.enter_async_context(
+                AsyncPostgresSaver.from_conn_string(self._settings.database_url)
             )
-            return base_prompt + context_section
+            await checkpointer.setup()
+            logger.info("checkpointer.postgres")
+            return checkpointer
+        except Exception as exc:
+            logger.warning(
+                "checkpointer.fallback_to_memory",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return MemorySaver()
 
-        return base_prompt
+    def _compile_graph(self, checkpointer):
+        settings = self._settings
+
+        async def call_model(state: MessagesState) -> dict:
+            model = settings.default_model
+            llm = ChatOpenAI(
+                model=model,
+                temperature=settings.default_temperature,
+                max_tokens=settings.default_max_tokens,
+                api_key=settings.openai_api_key,
+            )
+
+            messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+            response = await llm.ainvoke(messages)
+            return {"messages": [response]}
+
+        graph = StateGraph(MessagesState)
+        graph.add_node("model", call_model)
+        graph.add_edge(START, "model")
+        graph.add_edge("model", END)
+        return graph.compile(checkpointer=checkpointer)
 
     async def process(self, request: CognitionRequest) -> str:
-        """
-        Process LLM request.
-
-        Args:
-            request: CognitionRequest with prompt and optional context
-
-        Returns:
-            Generated response content
-        """
         log = logger.bind(
             request_id=request.request_id,
             model=request.model,
@@ -95,29 +94,28 @@ Suas responsabilidades:
         log.info("llm.processing")
 
         try:
-            llm = self._get_llm(
-                model=request.model,
-                temperature=request.temperature,
+            await self._ensure_graph()
+
+            thread_id = (
+                request.context.session_id if request.context else request.request_id
             )
 
-            system_prompt = self._build_system_prompt(request.context)
+            result = await self._graph.ainvoke(
+                {"messages": [HumanMessage(content=request.prompt)]},
+                config={"configurable": {"thread_id": thread_id}},
+            )
 
-            messages = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=request.prompt),
-            ]
-
-            response = await llm.ainvoke(messages)
-
-            content = response.content
-
+            content = result["messages"][-1].content
             log.info(
                 "llm.success",
+                thread_id=thread_id,
                 response_length=len(content) if isinstance(content, str) else 0,
             )
-
             return content if isinstance(content, str) else str(content)
 
         except Exception as exc:
             log.error("llm.failed", error=str(exc), error_type=type(exc).__name__)
             raise
+
+    async def close(self) -> None:
+        await self._exit_stack.aclose()
