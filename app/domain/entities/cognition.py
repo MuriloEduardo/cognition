@@ -30,6 +30,7 @@ class CognitionRequest(BaseModel):
 class CognitionResponse(BaseModel):
     request_id: str
     content: str
+    messages: list[str] = []
     model: str
     tokens_used: int | None = None
     error: str | None = None
