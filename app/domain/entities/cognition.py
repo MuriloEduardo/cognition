@@ -27,12 +27,25 @@ class CognitionRequest(BaseModel):
     context: WorkflowContext | None = None
 
 
+class LLMResult(BaseModel):
+    content: str
+    model_name: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    input_token_details: dict[str, Any] | None = None
+    output_token_details: dict[str, Any] | None = None
+
+
 class CognitionResponse(BaseModel):
     request_id: str
     content: str
     messages: list[str] = []
     model: str
-    tokens_used: int | None = None
+    model_name: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
     error: str | None = None
     context: WorkflowContext | None = None
 
@@ -41,4 +54,5 @@ __all__ = [
     "WorkflowContext",
     "CognitionRequest",
     "CognitionResponse",
+    "LLMResult",
 ]

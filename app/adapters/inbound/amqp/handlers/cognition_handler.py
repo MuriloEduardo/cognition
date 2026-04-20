@@ -6,7 +6,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
 from app.adapters.outbound.postgres import InferenceLogRepository
-from app.domain.entities.cognition import CognitionRequest, CognitionResponse
+from app.domain.entities.cognition import CognitionRequest, CognitionResponse, LLMResult
 from app.domain.services.llm_service import LLMService
 from app.ports.inbound.message_handler import MessageHandler
 
@@ -47,13 +47,19 @@ class CognitionHandler(MessageHandler):
         t0 = time.monotonic()
         error_text: str | None = None
         content = ""
+        llm_result: LLMResult | None = None
 
         try:
-            content = await self._process(request)
+            llm_result = await self._process(request)
+            content = llm_result.content
             response = CognitionResponse(
                 request_id=request.request_id,
                 content=content,
                 model=effective_model,
+                model_name=llm_result.model_name,
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                total_tokens=llm_result.total_tokens,
                 context=request.context,
             )
         except Exception as exc:
@@ -78,8 +84,19 @@ class CognitionHandler(MessageHandler):
                     model=effective_model,
                     prompt=request.prompt,
                     response=content or None,
+                    tokens_used=llm_result.total_tokens if llm_result else None,
                     latency_ms=latency_ms,
                     error=error_text,
+                    model_name=llm_result.model_name if llm_result else None,
+                    input_tokens=llm_result.input_tokens if llm_result else None,
+                    output_tokens=llm_result.output_tokens if llm_result else None,
+                    total_tokens=llm_result.total_tokens if llm_result else None,
+                    input_token_details=(
+                        llm_result.input_token_details if llm_result else None
+                    ),
+                    output_token_details=(
+                        llm_result.output_token_details if llm_result else None
+                    ),
                 )
             )
 
@@ -93,6 +110,6 @@ class CognitionHandler(MessageHandler):
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True
     )
-    async def _process(self, request: CognitionRequest) -> str:
+    async def _process(self, request: CognitionRequest) -> LLMResult:
         """Process LLM request using LangChain."""
         return await self._llm_service.process(request)

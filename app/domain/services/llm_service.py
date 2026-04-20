@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 
-from app.domain.entities.cognition import CognitionRequest
+from app.domain.entities.cognition import CognitionRequest, LLMResult
 from app.infrastructure.config.settings import Settings
 
 logger = structlog.get_logger(__name__)
@@ -63,7 +63,7 @@ class LLMService:
         graph.add_edge("model", END)
         return graph.compile(checkpointer=checkpointer)
 
-    async def process(self, request: CognitionRequest) -> str:
+    async def process(self, request: CognitionRequest) -> LLMResult:
         log = logger.bind(
             request_id=request.request_id,
             model=request.model,
@@ -84,13 +84,34 @@ class LLMService:
                 config={"configurable": {"thread_id": thread_id}},
             )
 
-            content = result["messages"][-1].content
+            ai_message = result["messages"][-1]
+            content = ai_message.content
+            if not isinstance(content, str):
+                content = str(content)
+
+            usage = getattr(ai_message, "usage_metadata", None) or {}
+            resp_meta = getattr(ai_message, "response_metadata", None) or {}
+
+            llm_result = LLMResult(
+                content=content,
+                model_name=resp_meta.get("model_name") or resp_meta.get("model"),
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                total_tokens=usage.get("total_tokens"),
+                input_token_details=usage.get("input_token_details"),
+                output_token_details=usage.get("output_token_details"),
+            )
+
             log.info(
                 "llm.success",
                 thread_id=thread_id,
-                response_length=len(content) if isinstance(content, str) else 0,
+                response_length=len(content),
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                total_tokens=llm_result.total_tokens,
+                model_name=llm_result.model_name,
             )
-            return content if isinstance(content, str) else str(content)
+            return llm_result
 
         except Exception as exc:
             log.error("llm.failed", error=str(exc), error_type=type(exc).__name__)
