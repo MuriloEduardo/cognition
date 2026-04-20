@@ -76,7 +76,7 @@ class CognitionHandler(MessageHandler):
                     thread_id=getattr(request.context, "session_id", "")
                     or request.request_id,
                     model=effective_model,
-                    prompt=request.content,
+                    prompt=request.prompt,
                     response=content or None,
                     latency_ms=latency_ms,
                     error=error_text,
