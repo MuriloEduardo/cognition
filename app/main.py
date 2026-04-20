@@ -3,6 +3,8 @@ import asyncio
 import signal
 
 import structlog
+import uvicorn
+from fastapi import FastAPI
 
 from app.container import Container
 from app.workers import available_workers
@@ -33,6 +35,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def create_health_app() -> FastAPI:
+    app = FastAPI(title="Cognition Service")
+
+    @app.get("/health")
+    async def health() -> dict:
+        return {"status": "ok", "service": "cognition"}
+
+    return app
+
+
 async def main() -> None:
     args = parse_args()
     container = Container()
@@ -43,12 +55,25 @@ async def main() -> None:
     names = args.workers or available_workers()
     logger.info("workers.running", workers=names)
 
+    settings = container.settings
+    config = uvicorn.Config(
+        create_health_app(),
+        host=settings.http_host,
+        port=settings.http_port,
+        log_level=settings.log_level.lower(),
+    )
+    server = uvicorn.Server(config)
+
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
 
+    http_task = asyncio.create_task(server.serve())
+
     await stop.wait()
+    server.should_exit = True
+    await http_task
     await container.shutdown()
     logger.info("shutdown.complete")
 

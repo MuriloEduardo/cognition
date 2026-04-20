@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     rabbitmq_reconnect_delay: float = 5.0
     rabbitmq_max_retries: int = 5
 
+    http_host: str = "0.0.0.0"
+    http_port: int = 80
+
     app_name: str = "cognition"
     log_level: str = "INFO"
 
