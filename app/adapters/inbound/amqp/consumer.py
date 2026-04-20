@@ -65,3 +65,20 @@ class RabbitMQConsumer:
                     message_id=message.message_id,
                 )
                 raise
+
+    async def _on_message(self, message: AbstractIncomingMessage) -> None:
+        async with message.process(requeue=False):
+            try:
+                headers = dict(message.headers) if message.headers else None
+                await self._handler.handle(
+                    message=message.body,
+                    routing_key=message.routing_key or "",
+                    headers=headers,
+                )
+            except Exception:
+                logger.exception(
+                    "message.failed",
+                    queue=message.routing_key,
+                    message_id=message.message_id,
+                )
+                raise
