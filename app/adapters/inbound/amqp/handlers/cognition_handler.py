@@ -1,7 +1,11 @@
+import asyncio
+import time
+
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
+from app.adapters.outbound.postgres import InferenceLogRepository
 from app.domain.entities.cognition import CognitionRequest, CognitionResponse
 from app.domain.services.llm_service import LLMService
 from app.ports.inbound.message_handler import MessageHandler
@@ -18,9 +22,15 @@ class CognitionHandler(MessageHandler):
     Cognition service processes LLM requests and returns results.
     """
 
-    def __init__(self, publisher: RabbitMQPublisher, llm_service: LLMService) -> None:
+    def __init__(
+        self,
+        publisher: RabbitMQPublisher,
+        llm_service: LLMService,
+        inference_logs: InferenceLogRepository | None = None,
+    ) -> None:
         self._publisher = publisher
         self._llm_service = llm_service
+        self._inference_logs = inference_logs
 
     async def handle(
         self, message: bytes, routing_key: str, headers: dict | None = None
@@ -34,6 +44,10 @@ class CognitionHandler(MessageHandler):
         log = logger.bind(request_id=request.request_id, model=effective_model)
         log.info("cognition.received")
 
+        t0 = time.monotonic()
+        error_text: str | None = None
+        content = ""
+
         try:
             content = await self._process(request)
             response = CognitionResponse(
@@ -43,13 +57,30 @@ class CognitionHandler(MessageHandler):
                 context=request.context,
             )
         except Exception as exc:
-            log.error("cognition.failed", error=str(exc))
+            error_text = str(exc)
+            log.error("cognition.failed", error=error_text)
             response = CognitionResponse(
                 request_id=request.request_id,
                 content="",
                 model=effective_model,
-                error=str(exc),
+                error=error_text,
                 context=request.context,
+            )
+
+        latency_ms = int((time.monotonic() - t0) * 1000)
+
+        if self._inference_logs:
+            asyncio.create_task(
+                self._inference_logs.record(
+                    request_id=request.request_id,
+                    thread_id=getattr(request.context, "session_id", "")
+                    or request.request_id,
+                    model=effective_model,
+                    prompt=request.content,
+                    response=content or None,
+                    latency_ms=latency_ms,
+                    error=error_text,
+                )
             )
 
         await self._publisher.publish(

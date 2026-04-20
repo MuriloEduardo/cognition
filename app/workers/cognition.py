@@ -13,4 +13,5 @@ def create_cognition_handler(container: Container) -> CognitionHandler:
     return CognitionHandler(
         publisher=container.publisher,
         llm_service=container.llm_service,
+        inference_logs=container.inference_logs,
     )
