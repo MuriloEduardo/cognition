@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import asyncpg
+
 if TYPE_CHECKING:
     from app.infrastructure.config.settings import Settings
 
@@ -16,8 +18,6 @@ class PostgresConnection:
         self._closed = True
 
     async def connect(self) -> Any:
-        import asyncpg
-
         if self._pool and not self._closed:
             return self._pool
 
