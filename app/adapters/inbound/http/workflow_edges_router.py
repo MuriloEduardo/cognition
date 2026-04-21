@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.domain.entities.agent import WorkflowEdge
 
-router = APIRouter(prefix="/agents/{agent_id}/edges", tags=["Agent Edges"])
+router = APIRouter(prefix="/agents/{agent_id}/edges", tags=["Workflow Edges"])
 
 
 class CreateEdgeRequest(BaseModel):

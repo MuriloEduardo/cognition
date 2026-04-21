@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.domain.entities.agent import WorkflowNode
 
-router = APIRouter(prefix="/agents/{agent_id}/nodes", tags=["Agent Nodes"])
+router = APIRouter(prefix="/agents/{agent_id}/nodes", tags=["Workflow Nodes"])
 
 
 class CreateNodeRequest(BaseModel):
