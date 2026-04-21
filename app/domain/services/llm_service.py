@@ -154,7 +154,16 @@ class LLMService:
 
         def make_node(fn):
             async def wrapper(state: State, config: RunnableConfig) -> dict:
-                flow = (config.get("configurable") or {}).get("flow") or {}
+                raw = (config.get("configurable") or {}).get("flow")
+                if isinstance(raw, str):
+                    try:
+                        flow = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        flow = {}
+                elif isinstance(raw, dict):
+                    flow = raw
+                else:
+                    flow = {}
                 return await fn(state, flow=flow)
 
             return wrapper
@@ -178,7 +187,18 @@ class LLMService:
         thread_id = (
             request.context.session_id if request.context else request.request_id
         )
-        flow = (request.context.state or {}).get("flow") if request.context else {}
+        raw_flow = (
+            (request.context.state or {}).get("flow") if request.context else None
+        )
+        if isinstance(raw_flow, str):
+            try:
+                flow: dict = json.loads(raw_flow)
+            except (json.JSONDecodeError, TypeError):
+                flow = {}
+        elif isinstance(raw_flow, dict):
+            flow = raw_flow
+        else:
+            flow = {}
 
         result = await self._graph.ainvoke(
             {"messages": [HumanMessage(content=request.prompt)]},
