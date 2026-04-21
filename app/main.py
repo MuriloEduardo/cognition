@@ -6,6 +6,9 @@ import structlog
 import uvicorn
 from fastapi import FastAPI
 
+from app.adapters.inbound.http.workflow_edges_router import router as edges_router
+from app.adapters.inbound.http.workflow_nodes_router import router as nodes_router
+from app.adapters.inbound.http.agents_router import router as agents_router
 from app.container import Container
 from app.workers import available_workers
 from app.workers.runner import WorkerRunner
@@ -40,20 +43,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def create_health_app() -> FastAPI:
-    health_app = FastAPI(title="Cognition Service")
+def create_app(container: "Container") -> FastAPI:
+    app = FastAPI(title="Cognition Service")
 
-    @health_app.get("/health")
+    app.include_router(agents_router)
+    app.include_router(nodes_router)
+    app.include_router(edges_router)
+
+    @app.get("/health")
     async def health() -> dict:
         return {"status": "ok", "service": "cognition"}
 
-    return health_app
+    app.state.container = container
+    return app
 
 
 async def run_http(container: Container) -> None:
     settings = container.settings
     config = uvicorn.Config(
-        create_health_app(),
+        create_app(container),
         host=settings.http_host,
         port=settings.http_port,
         log_level=settings.log_level.lower(),
