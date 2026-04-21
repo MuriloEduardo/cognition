@@ -6,6 +6,8 @@ from app.infrastructure.database import PostgresConnection
 
 logger = structlog.get_logger(__name__)
 
+__all__ = ["InferenceLogRepository"]
+
 
 class InferenceLogRepository:
     def __init__(self, database: PostgresConnection) -> None:
