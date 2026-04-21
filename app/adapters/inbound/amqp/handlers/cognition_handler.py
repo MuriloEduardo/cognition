@@ -61,6 +61,9 @@ class CognitionHandler(MessageHandler):
                 output_tokens=llm_result.output_tokens,
                 total_tokens=llm_result.total_tokens,
                 context=request.context,
+                selected_edge_id=llm_result.selected_edge_id,
+                justification=llm_result.justification,
+                confidence=llm_result.confidence,
             )
         except Exception as exc:
             error_text = str(exc)

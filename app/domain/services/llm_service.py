@@ -1,27 +1,34 @@
 """
-LLM service using LangGraph with checkpointer for automatic conversation persistence.
-The checkpointer stores all messages per thread_id — no need to pass history between services.
+LLM service using LangGraph with a 3-node pipeline driven by workflow context.
+
+Graph: extraction → evaluation → writing
+
+- extraction: extracts structured data from the user message using the node's
+  response_format (properties schema) defined in the workflow.
+- evaluation: decides which next_edge to take based on the extracted data and
+  the edge condition_prompts. Returns selected_edge_id, justification, confidence.
+- writing: composes the final human-facing reply based on the current node prompt
+  and the evaluation result.
 """
 
+import json
+from typing import Any, Annotated, NotRequired, TypedDict
+
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.graph import END, START, StateGraph, add_messages
 
 from app.domain.entities.cognition import CognitionRequest, LLMResult
 from app.infrastructure.config.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
-SYSTEM_PROMPT = """Você é um assistente de atendimento ao cliente profissional e prestativo.
 
-Suas responsabilidades:
-- Responder perguntas de forma clara e objetiva
-- Manter um tom profissional mas amigável
-- Solicitar informações adicionais quando necessário
-- Fornecer soluções práticas para problemas dos clientes
-"""
+class State(TypedDict):
+    messages: Annotated[list[AnyMessage], add_messages]
+    workdata: NotRequired[dict[str, Any]]
 
 
 class LLMService:
@@ -32,90 +39,190 @@ class LLMService:
     async def _ensure_graph(self) -> None:
         if self._graph is not None:
             return
-
-        checkpointer = await self._init_checkpointer()
-        self._graph = self._compile_graph(checkpointer)
+        self._graph = self._compile_graph(MemorySaver())
         logger.info("langgraph.compiled")
 
-    async def _init_checkpointer(self):
-        logger.info("checkpointer.memory")
-        return MemorySaver()
+    def _llm(self, *, json_mode: bool = False) -> ChatOpenAI:
+        kwargs: dict = dict(
+            model=self._settings.default_model,
+            temperature=self._settings.default_temperature,
+            max_tokens=self._settings.default_max_tokens,
+            api_key=self._settings.openai_api_key,
+        )
+        if json_mode:
+            kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+        return ChatOpenAI(**kwargs)
 
-    def _compile_graph(self, checkpointer):
-        settings = self._settings
+    def _compile_graph(self, checkpointer) -> Any:
+        extraction_llm = self._llm(json_mode=True)
+        evaluation_llm = self._llm(json_mode=True)
+        writing_llm = self._llm(json_mode=False)
 
-        async def call_model(state: MessagesState) -> dict:
-            model = settings.default_model
-            llm = ChatOpenAI(
-                model=model,
-                temperature=settings.default_temperature,
-                max_tokens=settings.default_max_tokens,
-                api_key=settings.openai_api_key,
+        async def extraction(state: State, *, flow: dict) -> dict:
+            node_prompt = flow.get("current_node_prompt") or ""
+            schema_props = flow.get("properties") or {}
+
+            system = (
+                f"Instrução: {node_prompt}\n"
+                "Extraia SOMENTE os campos solicitados.\n"
+                "Se o valor não estiver explícito na fala do usuário, retorne null.\n"
+                "Não invente, não deduza. Responda em JSON."
+            )
+            if schema_props:
+                system += f"\n\nSchema esperado: {json.dumps(schema_props, ensure_ascii=False)}"
+
+            resp = await extraction_llm.ainvoke(
+                [SystemMessage(content=system)] + list(state["messages"])
+            )
+            try:
+                extracted = json.loads(resp.content)
+            except json.JSONDecodeError:
+                extracted = {"raw": resp.content}
+
+            return {
+                "messages": [resp],
+                "workdata": {"extraction": extracted},
+            }
+
+        async def evaluation(state: State, *, flow: dict) -> dict:
+            node_prompt = flow.get("current_node_prompt") or ""
+            next_edges = flow.get("next_edges") or []
+            extracted = (state.get("workdata") or {}).get("extraction", {})
+
+            edges_desc = json.dumps(
+                [
+                    {
+                        "id": e.get("id"),
+                        "condition_prompt": e.get("condition_prompt"),
+                        "target_node_id": e.get("target_node_id"),
+                    }
+                    for e in next_edges
+                ],
+                ensure_ascii=False,
             )
 
-            messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
-            response = await llm.ainvoke(messages)
-            return {"messages": [response]}
+            system = (
+                f"Instrução base: {node_prompt}\n"
+                f"Dados extraídos: {json.dumps(extracted, ensure_ascii=False)}\n"
+                f"Edges disponíveis: {edges_desc}\n\n"
+                "Avalie se os dados satisfazem alguma condição de edge.\n"
+                "Regras: se algum campo obrigatório for null/inválido, selected_edge_id deve ser null.\n"
+                "Responda em JSON com os campos: selected_edge_id (string uuid ou null), "
+                "justification (string), confidence (float 0-1)."
+            )
 
-        graph = StateGraph(MessagesState)
-        graph.add_node("model", call_model)
-        graph.add_edge(START, "model")
-        graph.add_edge("model", END)
+            resp = await evaluation_llm.ainvoke(
+                [SystemMessage(content=system)] + list(state["messages"])
+            )
+            try:
+                evaluation_result = json.loads(resp.content)
+            except json.JSONDecodeError:
+                evaluation_result = {
+                    "selected_edge_id": None,
+                    "justification": resp.content,
+                    "confidence": 0.0,
+                }
+
+            return {
+                "messages": [resp],
+                "workdata": {
+                    **(state.get("workdata") or {}),
+                    "evaluation": evaluation_result,
+                },
+            }
+
+        async def writing(state: State, *, flow: dict) -> dict:
+            node_prompt = flow.get("current_node_prompt") or ""
+            evaluation_result = (state.get("workdata") or {}).get("evaluation", {})
+
+            system = (
+                f"Instrução: {node_prompt}\n"
+                f"Avaliação: {json.dumps(evaluation_result, ensure_ascii=False)}\n\n"
+                "Com base na avaliação, elabore a próxima resposta ao usuário de forma clara e humana.\n"
+                "Se a condição não foi satisfeita, solicite os dados faltantes."
+            )
+
+            resp = await writing_llm.ainvoke(
+                [SystemMessage(content=system)] + list(state["messages"])
+            )
+            return {"messages": [resp]}
+
+        # Graph is compiled once; flow context is injected per-invocation via closure trick:
+        # We store flow in config["configurable"]["flow"] and access via the node functions.
+        # LangGraph passes only (state, config) — we use a wrapper to extract flow.
+
+        def make_node(fn):
+            async def wrapper(state: State, config: dict) -> dict:
+                flow = (config.get("configurable") or {}).get("flow") or {}
+                return await fn(state, flow=flow)
+
+            return wrapper
+
+        graph = StateGraph(State)
+        graph.add_node("extraction", make_node(extraction))
+        graph.add_node("evaluation", make_node(evaluation))
+        graph.add_node("writing", make_node(writing))
+        graph.add_edge(START, "extraction")
+        graph.add_edge("extraction", "evaluation")
+        graph.add_edge("evaluation", "writing")
+        graph.add_edge("writing", END)
         return graph.compile(checkpointer=checkpointer)
 
     async def process(self, request: CognitionRequest) -> LLMResult:
-        log = logger.bind(
-            request_id=request.request_id,
-            model=request.model,
-            prompt_length=len(request.prompt),
-        )
-
+        log = logger.bind(request_id=request.request_id)
         log.info("llm.processing")
 
-        try:
-            await self._ensure_graph()
+        await self._ensure_graph()
 
-            thread_id = (
-                request.context.session_id if request.context else request.request_id
-            )
+        thread_id = (
+            request.context.session_id if request.context else request.request_id
+        )
+        flow = (request.context.state or {}).get("flow") if request.context else {}
 
-            result = await self._graph.ainvoke(
-                {"messages": [HumanMessage(content=request.prompt)]},
-                config={"configurable": {"thread_id": thread_id}},
-            )
+        result = await self._graph.ainvoke(
+            {"messages": [HumanMessage(content=request.prompt)]},
+            config={
+                "configurable": {
+                    "thread_id": thread_id,
+                    "flow": flow or {},
+                }
+            },
+        )
 
-            ai_message = result["messages"][-1]
-            content = ai_message.content
-            if not isinstance(content, str):
-                content = str(content)
+        # Final content = last writing node message
+        ai_message = result["messages"][-1]
+        content = (
+            ai_message.content
+            if isinstance(ai_message.content, str)
+            else str(ai_message.content)
+        )
 
-            usage = getattr(ai_message, "usage_metadata", None) or {}
-            resp_meta = getattr(ai_message, "response_metadata", None) or {}
+        # Evaluation result carries selected_edge_id, justification, confidence
+        evaluation_result: dict = (result.get("workdata") or {}).get("evaluation") or {}
 
-            llm_result = LLMResult(
-                content=content,
-                model_name=resp_meta.get("model_name") or resp_meta.get("model"),
-                input_tokens=usage.get("input_tokens"),
-                output_tokens=usage.get("output_tokens"),
-                total_tokens=usage.get("total_tokens"),
-                input_token_details=usage.get("input_token_details"),
-                output_token_details=usage.get("output_token_details"),
-            )
+        usage = getattr(ai_message, "usage_metadata", None) or {}
+        resp_meta = getattr(ai_message, "response_metadata", None) or {}
 
-            log.info(
-                "llm.success",
-                thread_id=thread_id,
-                response_length=len(content),
-                input_tokens=llm_result.input_tokens,
-                output_tokens=llm_result.output_tokens,
-                total_tokens=llm_result.total_tokens,
-                model_name=llm_result.model_name,
-            )
-            return llm_result
+        llm_result = LLMResult(
+            content=content,
+            model_name=resp_meta.get("model_name") or resp_meta.get("model"),
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+            total_tokens=usage.get("total_tokens"),
+            input_token_details=usage.get("input_token_details"),
+            output_token_details=usage.get("output_token_details"),
+            selected_edge_id=evaluation_result.get("selected_edge_id"),
+            justification=evaluation_result.get("justification"),
+            confidence=evaluation_result.get("confidence"),
+        )
 
-        except Exception as exc:
-            log.error("llm.failed", error=str(exc), error_type=type(exc).__name__)
-            raise
+        log.info(
+            "llm.success",
+            thread_id=thread_id,
+            selected_edge_id=llm_result.selected_edge_id,
+            confidence=llm_result.confidence,
+        )
+        return llm_result
 
     async def close(self) -> None:
         pass

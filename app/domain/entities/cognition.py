@@ -35,6 +35,9 @@ class LLMResult(BaseModel):
     total_tokens: int | None = None
     input_token_details: dict[str, Any] | None = None
     output_token_details: dict[str, Any] | None = None
+    selected_edge_id: str | None = None
+    justification: str | None = None
+    confidence: float | None = None
 
 
 class CognitionResponse(BaseModel):
@@ -48,6 +51,9 @@ class CognitionResponse(BaseModel):
     total_tokens: int | None = None
     error: str | None = None
     context: WorkflowContext | None = None
+    selected_edge_id: str | None = None
+    justification: str | None = None
+    confidence: float | None = None
 
 
 __all__ = [
