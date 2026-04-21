@@ -2,7 +2,7 @@ import structlog
 
 from app.adapters.inbound.amqp.consumer import RabbitMQConsumer
 from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
-from app.adapters.outbound.postgres import InferenceLogRepository
+from app.adapters.outbound.postgres.inference_log_repo import InferenceLogRepository
 from app.domain.services.llm_service import LLMService
 from app.infrastructure.config.settings import Settings
 from app.infrastructure.database import PostgresConnection

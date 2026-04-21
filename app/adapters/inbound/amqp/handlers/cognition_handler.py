@@ -5,7 +5,7 @@ import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.adapters.outbound.amqp.publisher import RabbitMQPublisher
-from app.adapters.outbound.postgres import InferenceLogRepository
+from app.adapters.outbound.postgres.inference_log_repo import InferenceLogRepository
 from app.domain.entities.cognition import CognitionRequest, CognitionResponse, LLMResult
 from app.domain.services.llm_service import LLMService
 from app.ports.inbound.message_handler import MessageHandler
