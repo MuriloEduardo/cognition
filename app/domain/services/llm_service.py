@@ -19,6 +19,7 @@ from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph, add_messages
+from langchain_core.runnables import RunnableConfig
 
 from app.domain.entities.cognition import CognitionRequest, LLMResult
 from app.infrastructure.config.settings import Settings
@@ -152,7 +153,7 @@ class LLMService:
         # LangGraph passes only (state, config) — we use a wrapper to extract flow.
 
         def make_node(fn):
-            async def wrapper(state: State, config: dict) -> dict:
+            async def wrapper(state: State, config: RunnableConfig) -> dict:
                 flow = (config.get("configurable") or {}).get("flow") or {}
                 return await fn(state, flow=flow)
 
