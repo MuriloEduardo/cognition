@@ -6,9 +6,10 @@ import structlog
 import uvicorn
 from fastapi import FastAPI
 
+from app.adapters.inbound.http.agents_router import router as agents_router
+from app.adapters.inbound.http.exception_handlers import register_exception_handlers
 from app.adapters.inbound.http.workflow_edges_router import router as edges_router
 from app.adapters.inbound.http.workflow_nodes_router import router as nodes_router
-from app.adapters.inbound.http.agents_router import router as agents_router
 from app.container import Container
 from app.workers import available_workers
 from app.workers.runner import WorkerRunner
@@ -45,6 +46,8 @@ def parse_args() -> argparse.Namespace:
 
 def create_app(container: "Container") -> FastAPI:
     app = FastAPI(title="Cognition Service")
+
+    register_exception_handlers(app)
 
     app.include_router(agents_router)
     app.include_router(nodes_router)
