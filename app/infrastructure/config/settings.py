@@ -28,3 +28,9 @@ class Settings(BaseSettings):
     default_model: str = "gpt-4o-mini"
     default_temperature: float = 0.7
     default_max_tokens: int = 1024
+
+    # LangSmith Tracing (read by LangChain SDK automatically via env vars)
+    langsmith_tracing: bool = False
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_api_key: str = ""
+    langsmith_project: str = "interfaceless"
