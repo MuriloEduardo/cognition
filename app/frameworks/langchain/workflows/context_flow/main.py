@@ -102,27 +102,30 @@ Responda SOMENTE em JSON com o seguinte schema:
 {{ flow.system_prompt }}
 
 {%- endif %}
-{%- if next_node_prompt %}
-# Instrução do Próximo Nó
-A condição foi satisfeita ({{ workdata.evaluation.justification }}).
-O usuário será direcionado para a próxima etapa. Use a instrução abaixo para orientar sua resposta:
-{{ next_node_prompt }}
-
-{%- else %}
 {%- if flow.current_node_prompt %}
 # Instrução do Nó Atual
 {{ flow.current_node_prompt }}
 
 {%- endif %}
-{%- if missing_properties %}
-# Campos Obrigatórios Faltando
+{%- if next_node_prompt %}
+# Transição de Nó
+A condição foi satisfeita — {{ workdata.evaluation.justification }}
+O usuário será encaminhado para a próxima etapa. Use a instrução abaixo para orientar sua resposta:
+{{ next_node_prompt }}
+
+{%- elif missing_properties %}
+# Campos Obrigatórios Pendentes
 Os seguintes campos ainda não foram fornecidos: {{ missing_properties | join(', ') }}
 Solicite-os ao usuário de forma natural e conversacional.
 
-{%- endif %}
+{%- else %}
+# Estado Atual
+Dados extraídos até agora: {{ workdata.extraction }}
+Avaliação: {{ workdata.evaluation.justification }}
+
 {%- endif %}
 # Tarefa
-Elabore a próxima resposta ao usuário de forma clara e humana.""",
+Com base no histórico da conversa e nas instruções acima, elabore a próxima resposta ao usuário de forma clara, natural e humana.""",
         },
     ],
     "edges": [
