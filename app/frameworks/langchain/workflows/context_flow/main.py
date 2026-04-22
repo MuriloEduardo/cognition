@@ -102,16 +102,27 @@ Responda SOMENTE em JSON com o seguinte schema:
 {{ flow.system_prompt }}
 
 {%- endif %}
+{%- if next_node_prompt %}
+# Instrução do Próximo Nó
+A condição foi satisfeita ({{ workdata.evaluation.justification }}).
+O usuário será direcionado para a próxima etapa. Use a instrução abaixo para orientar sua resposta:
+{{ next_node_prompt }}
+
+{%- else %}
 {%- if flow.current_node_prompt %}
-# Instrução do Nó
+# Instrução do Nó Atual
 {{ flow.current_node_prompt }}
 
 {%- endif %}
-# Tarefa
-Avaliação: {{ workdata.evaluation }}
+{%- if missing_properties %}
+# Campos Obrigatórios Faltando
+Os seguintes campos ainda não foram fornecidos: {{ missing_properties | join(', ') }}
+Solicite-os ao usuário de forma natural e conversacional.
 
-Com base na avaliação, elabore a próxima resposta ao usuário de forma clara e humana.
-Se a condição não foi satisfeita, solicite os dados faltantes.""",
+{%- endif %}
+{%- endif %}
+# Tarefa
+Elabore a próxima resposta ao usuário de forma clara e humana.""",
         },
     ],
     "edges": [
@@ -127,12 +138,37 @@ Se a condição não foi satisfeita, solicite os dados faltantes.""",
 # ---------------------------------------------------------------------------
 
 
-def _render_system_prompt(template_str: str, *, flow: dict, workdata: dict) -> str:
+def _render_system_prompt(
+    template_str: str, *, flow: dict, workdata: dict, **extra: Any
+) -> str:
     template = _jinja_env.from_string(template_str)
     return template.render(
         flow=AttrView(flow),
         workdata=AttrView(workdata),
+        **extra,
     )
+
+
+def _compute_missing_properties(flow: dict, workdata: dict) -> list[str]:
+    """Required property names whose extracted value is null."""
+    extraction = workdata.get("extraction") or {}
+    missing = []
+    for prop in flow.get("properties") or []:
+        if isinstance(prop, dict) and prop.get("required"):
+            if extraction.get(prop.get("name")) is None:
+                missing.append(prop["name"])
+    return missing
+
+
+def _find_next_node_prompt(flow: dict, workdata: dict) -> str | None:
+    """If evaluation selected an edge, return the target node's prompt."""
+    selected_edge_id = (workdata.get("evaluation") or {}).get("selected_edge_id")
+    if not selected_edge_id:
+        return None
+    for edge in flow.get("next_edges") or []:
+        if isinstance(edge, dict) and str(edge.get("id")) == str(selected_edge_id):
+            return edge.get("target_node_prompt")
+    return None
 
 
 def _build_llm(settings: Settings, *, node_def: dict) -> Any:
@@ -162,8 +198,14 @@ async def _run_node(
     flow: dict = (runtime.context or {}).get("flow") or {}
     workdata: dict = state.get("workdata") or {}
 
+    # Extra template vars injected only for specific nodes
+    extra: dict[str, Any] = {}
+    if node_def["id"] == "writing":
+        extra["missing_properties"] = _compute_missing_properties(flow, workdata)
+        extra["next_node_prompt"] = _find_next_node_prompt(flow, workdata)
+
     system_prompt_str = _render_system_prompt(
-        node_def["system_prompt"], flow=flow, workdata=workdata
+        node_def["system_prompt"], flow=flow, workdata=workdata, **extra
     )
     llm = _build_llm(settings, node_def=node_def)
 
