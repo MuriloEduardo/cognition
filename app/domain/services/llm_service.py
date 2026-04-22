@@ -60,20 +60,29 @@ class LLMService:
         writing_llm = self._llm(json_mode=False)
 
         async def extraction(state: State, *, flow: dict) -> dict:
+            system_prompt = flow.get("system_prompt") or ""
             node_prompt = flow.get("current_node_prompt") or ""
-            schema_props = flow.get("properties") or {}
+            schema_props: list[dict] = flow.get("properties") or []
 
-            system = (
-                f"Instrução: {node_prompt}\n"
+            system_parts = []
+            if system_prompt:
+                system_parts.append(f"# Instruções Gerais\n{system_prompt}")
+            if node_prompt:
+                system_parts.append(f"# Instrução do Nó\n{node_prompt}")
+            system_parts.append(
+                "# Tarefa\n"
                 "Extraia SOMENTE os campos solicitados.\n"
                 "Se o valor não estiver explícito na fala do usuário, retorne null.\n"
                 "Não invente, não deduza. Responda em JSON."
             )
             if schema_props:
-                system += f"\n\nSchema esperado: {json.dumps(schema_props, ensure_ascii=False)}"
+                system_parts.append(
+                    f"# Schema esperado\n{json.dumps(schema_props, ensure_ascii=False)}"
+                )
 
             resp = await extraction_llm.ainvoke(
-                [SystemMessage(content=system)] + list(state["messages"])
+                [SystemMessage(content="\n\n".join(system_parts))]
+                + list(state["messages"])
             )
             try:
                 extracted = json.loads(resp.content)
@@ -86,6 +95,7 @@ class LLMService:
             }
 
         async def evaluation(state: State, *, flow: dict) -> dict:
+            system_prompt = flow.get("system_prompt") or ""
             node_prompt = flow.get("current_node_prompt") or ""
             next_edges = flow.get("next_edges") or []
             extracted = (state.get("workdata") or {}).get("extraction", {})
@@ -102,8 +112,13 @@ class LLMService:
                 ensure_ascii=False,
             )
 
-            system = (
-                f"Instrução base: {node_prompt}\n"
+            system_parts = []
+            if system_prompt:
+                system_parts.append(f"# Instruções Gerais\n{system_prompt}")
+            if node_prompt:
+                system_parts.append(f"# Instrução do Nó\n{node_prompt}")
+            system_parts.append(
+                f"# Tarefa\n"
                 f"Dados extraídos: {json.dumps(extracted, ensure_ascii=False)}\n"
                 f"Edges disponíveis: {edges_desc}\n\n"
                 "Avalie se os dados satisfazem alguma condição de edge.\n"
@@ -113,7 +128,8 @@ class LLMService:
             )
 
             resp = await evaluation_llm.ainvoke(
-                [SystemMessage(content=system)] + list(state["messages"])
+                [SystemMessage(content="\n\n".join(system_parts))]
+                + list(state["messages"])
             )
             try:
                 evaluation_result = json.loads(resp.content)
@@ -133,18 +149,25 @@ class LLMService:
             }
 
         async def writing(state: State, *, flow: dict) -> dict:
+            system_prompt = flow.get("system_prompt") or ""
             node_prompt = flow.get("current_node_prompt") or ""
             evaluation_result = (state.get("workdata") or {}).get("evaluation", {})
 
-            system = (
-                f"Instrução: {node_prompt}\n"
+            system_parts = []
+            if system_prompt:
+                system_parts.append(f"# Instruções Gerais\n{system_prompt}")
+            if node_prompt:
+                system_parts.append(f"# Instrução do Nó\n{node_prompt}")
+            system_parts.append(
+                f"# Tarefa\n"
                 f"Avaliação: {json.dumps(evaluation_result, ensure_ascii=False)}\n\n"
                 "Com base na avaliação, elabore a próxima resposta ao usuário de forma clara e humana.\n"
                 "Se a condição não foi satisfeita, solicite os dados faltantes."
             )
 
             resp = await writing_llm.ainvoke(
-                [SystemMessage(content=system)] + list(state["messages"])
+                [SystemMessage(content="\n\n".join(system_parts))]
+                + list(state["messages"])
             )
             return {"messages": [resp]}
 
