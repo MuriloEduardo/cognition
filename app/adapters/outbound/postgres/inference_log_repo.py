@@ -55,3 +55,40 @@ class InferenceLogRepository:
             json.dumps(input_token_details) if input_token_details else None,
             json.dumps(output_token_details) if output_token_details else None,
         )
+
+    async def record_node(
+        self,
+        *,
+        request_id: str,
+        thread_id: str,
+        node_id: str,
+        system_prompt: str | None = None,
+        response: str | None = None,
+        model_name: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
+        latency_ms: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        pool = await self._db.get_pool()
+        await pool.execute(
+            """
+            INSERT INTO node_inference_logs
+                (request_id, thread_id, node_id, system_prompt, response,
+                 model_name, input_tokens, output_tokens, total_tokens,
+                 latency_ms, error)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            """,
+            request_id,
+            thread_id,
+            node_id,
+            system_prompt,
+            response,
+            model_name,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            latency_ms,
+            error,
+        )

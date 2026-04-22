@@ -19,6 +19,8 @@ class Context(TypedDict):
     """Per-invocation runtime context injected via graph.ainvoke(context=...)."""
 
     flow: Dict[str, Any]
+    request_id: str
+    thread_id: str
 
 
 class EvaluationResult(BaseModel):

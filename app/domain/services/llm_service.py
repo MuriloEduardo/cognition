@@ -15,6 +15,7 @@ from typing import Any
 import structlog
 from langchain_core.messages import HumanMessage
 
+from app.adapters.outbound.postgres.inference_log_repo import InferenceLogRepository
 from app.domain.entities.cognition import CognitionRequest, LLMResult
 from app.frameworks.langchain.workflows.context_flow.main import build_context_flow
 from app.infrastructure.config.settings import Settings
@@ -23,14 +24,19 @@ logger = structlog.get_logger(__name__)
 
 
 class LLMService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, log_repo: InferenceLogRepository | None = None
+    ) -> None:
         self._settings = settings
+        self._log_repo = log_repo
         self._graph: Any = None
 
     async def _ensure_graph(self) -> None:
         if self._graph is not None:
             return
-        self._graph = await build_context_flow(settings=self._settings)
+        self._graph = await build_context_flow(
+            settings=self._settings, log_repo=self._log_repo
+        )
         logger.info("langgraph.compiled")
 
     async def process(self, request: CognitionRequest) -> LLMResult:
@@ -59,7 +65,11 @@ class LLMService:
         result = await self._graph.ainvoke(
             {"messages": [HumanMessage(content=request.prompt)]},
             config={"configurable": {"thread_id": thread_id}},
-            context={"flow": flow},
+            context={
+                "flow": flow,
+                "request_id": request.request_id,
+                "thread_id": thread_id,
+            },
         )
 
         # Last message is always the writing node's reply

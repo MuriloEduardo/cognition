@@ -44,7 +44,7 @@ class Container:
     @property
     def llm_service(self) -> LLMService:
         if self._llm_service is None:
-            self._llm_service = LLMService(self.settings)
+            self._llm_service = LLMService(self.settings, log_repo=self.inference_logs)
         return self._llm_service
 
     @property
