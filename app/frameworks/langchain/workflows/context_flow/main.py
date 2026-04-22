@@ -212,6 +212,19 @@ async def _run_node(
     )
     llm = _build_llm(settings, node_def=node_def)
 
+    logger.debug(
+        "node.system_prompt",
+        node_id=node_def["id"],
+        system_prompt=system_prompt_str,
+        flow_keys=list(flow.keys()),
+        workdata_keys=list(workdata.keys()),
+        **(
+            {k: v for k, v in extra.items() if k != "missing_properties"}
+            if extra
+            else {}
+        ),
+    )
+
     # Always inject a fresh SystemMessage; strip any previous ones from history
     history: list[AnyMessage] = [
         m for m in state.get("messages", []) if not isinstance(m, SystemMessage)
