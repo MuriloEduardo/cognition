@@ -36,7 +36,7 @@ logger = structlog.get_logger(__name__)
 
 _jinja_env = Environment()
 
-_RESPONSE_SCHEMAS: dict[str, type] = {
+_PYDANTIC_SCHEMAS: dict[str, type] = {
     "evaluation": EvaluationResult,
 }
 
@@ -71,7 +71,8 @@ Se o valor não estiver explícito na fala, retorne null. Não invente, não ded
         },
         {
             "id": "evaluation",
-            "response_schema": "evaluation",
+            "json_mode": True,
+            "pydantic_schema": "evaluation",
             "system_prompt": """\
 {%- if flow.system_prompt %}
 # Instruções Gerais
@@ -88,7 +89,10 @@ Dados extraídos: {{ workdata.extraction }}
 Edges disponíveis: {{ flow.next_edges }}
 
 Avalie se os dados extraídos satisfazem alguma condição de edge.
-Regras: se algum campo obrigatório for null/inválido, selected_edge_id deve ser null.""",
+Regras: se algum campo obrigatório for null/inválido, selected_edge_id deve ser null.
+
+Responda SOMENTE em JSON com o seguinte schema:
+{"selected_edge_id": "<uuid ou null>", "justification": "<texto>", "confidence": <0.0-1.0>}""",
         },
         {
             "id": "writing",
@@ -138,11 +142,6 @@ def _build_llm(settings: Settings, *, node_def: dict) -> Any:
         max_tokens=settings.default_max_tokens,
         api_key=settings.openai_api_key,
     )
-    schema_name = node_def.get("response_schema")
-    if schema_name:
-        return ChatOpenAI(**kwargs).with_structured_output(
-            _RESPONSE_SCHEMAS[schema_name]
-        )
     if node_def.get("json_mode"):
         kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
     return ChatOpenAI(**kwargs)
@@ -176,19 +175,22 @@ async def _run_node(
 
     node_id = node_def["id"]
 
-    # Structured output → LLM returns Pydantic object directly
-    if node_def.get("response_schema"):
-        result = await llm.ainvoke(input_messages)
-        return {"workdata": {node_id: result.model_dump()}}
-
     resp = await llm.ainvoke(input_messages)
 
-    # JSON mode (extraction) → parse content, store in workdata only
+    # JSON mode → parse content, store in workdata only
     if node_def.get("json_mode"):
         try:
             parsed = json.loads(resp.content)
         except (json.JSONDecodeError, AttributeError):
             parsed = {"raw": getattr(resp, "content", str(resp))}
+        # Optional Pydantic validation (e.g. evaluation node)
+        schema_name = node_def.get("pydantic_schema")
+        if schema_name and schema_name in _PYDANTIC_SCHEMAS:
+            try:
+                model_cls = _PYDANTIC_SCHEMAS[schema_name]
+                parsed = model_cls.model_validate(parsed).model_dump()
+            except Exception:
+                pass  # keep raw dict if validation fails
         return {"workdata": {node_id: parsed}}
 
     # Plain LLM (writing) → append to messages for conversation continuity
