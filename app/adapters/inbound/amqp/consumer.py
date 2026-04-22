@@ -1,5 +1,6 @@
 import aio_pika
 import structlog
+from aiormq.exceptions import ChannelPreconditionFailed
 from aio_pika.abc import AbstractIncomingMessage
 
 from app.infrastructure.messaging.rabbitmq_connection import RabbitMQConnection
@@ -45,15 +46,33 @@ class RabbitMQConsumer:
         else:
             exchange = None
 
-        queue = await channel.declare_queue(
-            queue_name, durable=True, arguments={"x-dead-letter-exchange": DLX_EXCHANGE}
-        )
+        queue = await self._declare_queue(channel, queue_name)
 
         if exchange and routing_key:
             await queue.bind(exchange, routing_key=routing_key)
 
         logger.info("Started consuming from queue '%s'", queue_name)
         await queue.consume(self._on_message)
+
+    async def _declare_queue(self, channel, queue_name: str):
+        """Declare queue with DLX. Falls back to passive if already exists with different args."""
+        try:
+            return await channel.declare_queue(
+                queue_name,
+                durable=True,
+                arguments={"x-dead-letter-exchange": DLX_EXCHANGE},
+            )
+        except ChannelPreconditionFailed:
+            logger.warning(
+                "queue.args_mismatch",
+                queue=queue_name,
+                detail="Queue exists with different arguments; declaring passively (no DLX).",
+            )
+            # Channel is closed after PRECONDITION_FAILED — must get a fresh one.
+            channel = await self._connection.get_channel()
+            await channel.set_qos(prefetch_count=10)
+            self._channel = channel
+            return await channel.declare_queue(queue_name, durable=True, passive=True)
 
     async def _on_message(self, message: AbstractIncomingMessage) -> None:
         headers = dict(message.headers) if message.headers else {}
