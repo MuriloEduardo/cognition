@@ -18,9 +18,10 @@ import time
 from typing import Any
 
 import structlog
+from deepagents import create_deep_agent
 from jinja2 import Environment
-from langchain_core.messages import AnyMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import AnyMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.runtime import Runtime
 
@@ -176,16 +177,42 @@ def _find_next_node_prompt(flow: dict, workdata: dict) -> str | None:
     return None
 
 
-def _build_llm(settings: Settings, *, node_def: dict) -> ChatOpenAI:
-    kwargs: dict = dict(
-        model=settings.default_model,
-        temperature=settings.default_temperature,
-        max_tokens=settings.default_max_tokens,
-        api_key=settings.openai_api_key,
+def _build_agent(
+    settings: Settings,
+    *,
+    node_def: dict,
+    node_config: dict,
+    system_prompt: str,
+) -> Any:
+    """Build a deep agent for a given node.
+
+    The model/provider is sourced from tenant node_config (flow["node_config"]);
+    falls back to the service default. The API key for OpenAI is taken from
+    settings; other providers rely on their standard environment variables.
+    The system_prompt is delegated to deepagents, which injects it automatically.
+    """
+    model_str: str = node_config.get("model") or f"openai:{settings.default_model}"
+    tools: list = node_config.get("tools") or []
+
+    provider = model_str.split(":")[0] if ":" in model_str else "openai"
+    extra_model_kwargs: dict = {}
+    if provider == "openai":
+        extra_model_kwargs["api_key"] = settings.openai_api_key
+
+    model = init_chat_model(model_str, **extra_model_kwargs)
+
+    # Structured output via deepagents response_format (pydantic schema)
+    response_format = None
+    schema_name = node_def.get("pydantic_schema")
+    if schema_name and schema_name in _PYDANTIC_SCHEMAS:
+        response_format = _PYDANTIC_SCHEMAS[schema_name]
+
+    return create_deep_agent(
+        model=model,
+        tools=tools or None,
+        system_prompt=system_prompt,
+        response_format=response_format,
     )
-    if node_def.get("json_mode"):
-        kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
-    return ChatOpenAI(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +241,14 @@ async def _run_node(
     system_prompt_str = _render_system_prompt(
         node_def["system_prompt"], flow=flow, workdata=workdata, **extra
     )
-    llm = _build_llm(settings, node_def=node_def)
+
+    node_config: dict = flow.get("node_config") or {}
+    agent = _build_agent(
+        settings,
+        node_def=node_def,
+        node_config=node_config,
+        system_prompt=system_prompt_str,
+    )
 
     logger.debug(
         "node.system_prompt",
@@ -224,11 +258,7 @@ async def _run_node(
         workdata_keys=list(workdata.keys()),
     )
 
-    # Always inject a fresh SystemMessage; strip any previous ones from history
-    history: list[AnyMessage] = [
-        m for m in state.get("messages", []) if not isinstance(m, SystemMessage)
-    ]
-    input_messages = [SystemMessage(content=system_prompt_str)] + history
+    history: list[AnyMessage] = state.get("messages", [])
 
     node_id = node_def["id"]
 
@@ -241,7 +271,7 @@ async def _run_node(
     total_tokens: int | None = None
 
     try:
-        resp = await llm.ainvoke(input_messages)
+        result = await agent.ainvoke({"messages": history})
     except Exception as exc:
         error_str = str(exc)
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -261,30 +291,40 @@ async def _run_node(
         raise
 
     latency_ms = int((time.monotonic() - t0) * 1000)
-    usage = getattr(resp, "usage_metadata", None) or {}
-    resp_meta = getattr(resp, "response_metadata", None) or {}
-    model_name = resp_meta.get("model_name") or resp_meta.get("model")
-    input_tokens = usage.get("input_tokens")
-    output_tokens = usage.get("output_tokens")
-    total_tokens = usage.get("total_tokens")
-    resp_content = (
-        resp.content if isinstance(resp.content, str) else json.dumps(resp.content)
-    )
+
+    # Extract token usage / metadata from the last AI message in the result
+    result_messages: list[AnyMessage] = result.get("messages") or []
+    last_ai = result_messages[-1] if result_messages else None
+    if last_ai is not None:
+        usage = getattr(last_ai, "usage_metadata", None) or {}
+        resp_meta = getattr(last_ai, "response_metadata", None) or {}
+        model_name = resp_meta.get("model_name") or resp_meta.get("model")
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
+        total_tokens = usage.get("total_tokens")
+        resp_content = (
+            last_ai.content
+            if isinstance(last_ai.content, str)
+            else json.dumps(last_ai.content)
+        )
 
     # JSON mode → parse content, store in workdata only
     if node_def.get("json_mode"):
-        try:
-            parsed = json.loads(resp.content)
-        except (json.JSONDecodeError, AttributeError):
-            parsed = {"raw": getattr(resp, "content", str(resp))}
-        # Optional Pydantic validation (e.g. evaluation node)
-        schema_name = node_def.get("pydantic_schema")
-        if schema_name and schema_name in _PYDANTIC_SCHEMAS:
+        structured = result.get("structured_response")
+        if structured is not None:
+            # deepagents structured output (pydantic response_format)
+            parsed = (
+                structured.model_dump()
+                if hasattr(structured, "model_dump")
+                else dict(structured)
+            )
+        else:
+            # Plain JSON string in the last message
             try:
-                model_cls = _PYDANTIC_SCHEMAS[schema_name]
-                parsed = model_cls.model_validate(parsed).model_dump()
-            except Exception:
-                pass  # keep raw dict if validation fails
+                parsed = json.loads(resp_content or "")
+            except (json.JSONDecodeError, TypeError):
+                parsed = {"raw": resp_content or ""}
+
         if log_repo and request_id:
             import asyncio
 
@@ -304,7 +344,7 @@ async def _run_node(
             )
         return {"workdata": {node_id: parsed}}
 
-    # Plain LLM (writing) → append to messages for conversation continuity
+    # Plain LLM (writing) → the last message is the AI reply
     if log_repo and request_id:
         import asyncio
 
@@ -322,7 +362,11 @@ async def _run_node(
                 latency_ms=latency_ms,
             )
         )
-    return {"messages": [resp]}
+    # Return only the new AI messages (those beyond the original history)
+    new_messages = result_messages[len(history) :]
+    return {
+        "messages": new_messages if new_messages else ([last_ai] if last_ai else [])
+    }
 
 
 # ---------------------------------------------------------------------------
