@@ -176,7 +176,7 @@ def _find_next_node_prompt(flow: dict, workdata: dict) -> str | None:
     return None
 
 
-def _build_llm(settings: Settings, *, node_def: dict) -> Any:
+def _build_llm(settings: Settings, *, node_def: dict) -> ChatOpenAI:
     kwargs: dict = dict(
         model=settings.default_model,
         temperature=settings.default_temperature,
@@ -206,11 +206,10 @@ async def _run_node(
     request_id: str = (runtime.context or {}).get("request_id") or ""
     thread_id: str = (runtime.context or {}).get("thread_id") or ""
 
-    # Extra template vars injected only for specific nodes
-    extra: dict[str, Any] = {}
-    if node_def["id"] == "writing":
-        extra["missing_properties"] = _compute_missing_properties(flow, workdata)
-        extra["next_node_prompt"] = _find_next_node_prompt(flow, workdata)
+    extra: dict[str, Any] = {
+        "missing_properties": _compute_missing_properties(flow, workdata),
+        "next_node_prompt": _find_next_node_prompt(flow, workdata),
+    }
 
     system_prompt_str = _render_system_prompt(
         node_def["system_prompt"], flow=flow, workdata=workdata, **extra
@@ -223,11 +222,6 @@ async def _run_node(
         system_prompt=system_prompt_str,
         flow_keys=list(flow.keys()),
         workdata_keys=list(workdata.keys()),
-        **(
-            {k: v for k, v in extra.items() if k != "missing_properties"}
-            if extra
-            else {}
-        ),
     )
 
     # Always inject a fresh SystemMessage; strip any previous ones from history
