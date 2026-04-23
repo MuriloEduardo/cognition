@@ -13,4 +13,4 @@ COPY app ./app
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "app.main", "--http", "--workers"]
+ENTRYPOINT ["python", "-m", "app.main"]
