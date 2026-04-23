@@ -178,26 +178,22 @@ def _find_next_node_prompt(flow: dict, workdata: dict) -> str | None:
 
 
 def _build_agent(
-    settings: Settings,
     *,
+    model_str: str,
+    api_key: str,
+    tools: list,
     node_def: dict,
-    node_config: dict,
     system_prompt: str,
 ) -> Any:
     """Build a deep agent for a given node.
 
-    The model/provider is sourced from tenant node_config (flow["node_config"]);
-    falls back to the service default. The API key for OpenAI is taken from
-    settings; other providers rely on their standard environment variables.
+    model_str: provider:model format (e.g. "openai:gpt-4o-mini").
     The system_prompt is delegated to deepagents, which injects it automatically.
     """
-    model_str: str = node_config.get("model") or f"openai:{settings.default_model}"
-    tools: list = node_config.get("tools") or []
-
     provider = model_str.split(":")[0] if ":" in model_str else "openai"
     extra_model_kwargs: dict = {}
     if provider == "openai":
-        extra_model_kwargs["api_key"] = settings.openai_api_key
+        extra_model_kwargs["api_key"] = api_key
 
     model = init_chat_model(model_str, **extra_model_kwargs)
 
@@ -243,10 +239,13 @@ async def _run_node(
     )
 
     node_config: dict = flow.get("node_config") or {}
+    model_str: str = node_config.get("model") or f"openai:{settings.default_model}"  # type: ignore[attr-defined]
+    tools: list = node_config.get("tools") or []
     agent = _build_agent(
-        settings,
+        model_str=model_str,
+        api_key=settings.openai_api_key,  # type: ignore[attr-defined]
+        tools=tools,
         node_def=node_def,
-        node_config=node_config,
         system_prompt=system_prompt_str,
     )
 
